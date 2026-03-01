@@ -3,6 +3,11 @@
 const canvas = document.getElementById('gameCanvas');
 const ctx    = canvas.getContext('2d');
 
+const isTouchDevice = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
+
+// Scale UI elements relative to a 450px-wide design baseline
+function uiScale() { return Math.max(0.65, Math.min(1.4, canvas.width / 450)); }
+
 function resize() {
   const aspect = 9 / 16;
   let w = window.innerWidth;
@@ -540,36 +545,37 @@ function drawPlanet() {
 
 // ── HUD ───────────────────────────────────────────────────────────────────────
 function drawHUD() {
-  const pad = 14;
+  const S   = uiScale();
+  const pad = Math.round(14 * S);
 
   // Score — top left
   ctx.textAlign = 'left';
-  ctx.font = 'bold 22px Segoe UI';
+  ctx.font = `bold ${Math.round(22 * S)}px Segoe UI`;
   ctx.fillStyle = 'rgba(255,255,255,0.9)';
-  ctx.fillText(score.current.toLocaleString(), pad, 36);
+  ctx.fillText(score.current.toLocaleString(), pad, Math.round(36 * S));
 
-  ctx.font = '11px Segoe UI';
+  ctx.font = `${Math.round(11 * S)}px Segoe UI`;
   ctx.fillStyle = 'rgba(255,255,255,0.4)';
-  ctx.fillText('SCORE', pad, 50);
+  ctx.fillText('SCORE', pad, Math.round(50 * S));
 
   // Best — top right
   ctx.textAlign = 'right';
-  ctx.font = '13px Segoe UI';
+  ctx.font = `${Math.round(13 * S)}px Segoe UI`;
   ctx.fillStyle = 'rgba(255,200,50,0.7)';
-  ctx.fillText(`BEST  ${score.best.toLocaleString()}`, canvas.width - pad, 30);
+  ctx.fillText(`BEST  ${score.best.toLocaleString()}`, canvas.width - pad, Math.round(30 * S));
 
   // Suns count
-  ctx.font = '11px Segoe UI';
+  ctx.font = `${Math.round(11 * S)}px Segoe UI`;
   ctx.fillStyle = 'rgba(255,255,255,0.35)';
-  ctx.fillText(`${score.totalSuns} suns`, canvas.width - pad, 46);
+  ctx.fillText(`${score.totalSuns} suns`, canvas.width - pad, Math.round(46 * S));
 
   // Combo — below score (only if > 1)
   if (score.combo > 1) {
     ctx.textAlign = 'left';
-    ctx.font = `bold ${12 + score.combo}px Segoe UI`;
+    ctx.font = `bold ${Math.round((12 + score.combo) * S)}px Segoe UI`;
     const comboColor = score.combo >= 5 ? '#ff9900' : score.combo >= 3 ? '#ffdd44' : '#aaffcc';
     ctx.fillStyle = comboColor;
-    ctx.fillText(`×${score.combo} COMBO`, pad, 68);
+    ctx.fillText(`×${score.combo} COMBO`, pad, Math.round(68 * S));
   }
 
   // Difficulty indicator — top center, subtle
@@ -577,17 +583,17 @@ function drawHUD() {
   const diffLabel = diffLevel <= 2 ? 'EASY' : diffLevel <= 4 ? 'NORMAL' : diffLevel <= 7 ? 'HARD' : 'EXTREME';
   const diffColor = diffLevel <= 2 ? 'rgba(100,255,120,0.4)' : diffLevel <= 4 ? 'rgba(255,220,60,0.4)' : diffLevel <= 7 ? 'rgba(255,140,40,0.4)' : 'rgba(255,60,60,0.5)';
   ctx.textAlign = 'center';
-  ctx.font = '10px Segoe UI';
+  ctx.font = `${Math.round(10 * S)}px Segoe UI`;
   ctx.fillStyle = diffColor;
-  ctx.fillText(`LEVEL ${diffLevel}  ${diffLabel}`, canvas.width / 2, 18);
+  ctx.fillText(`LEVEL ${diffLevel}  ${diffLabel}`, canvas.width / 2, Math.round(18 * S));
 
   // Current orbit info — bottom center
   if (planet.orbitSun) {
     const sun = planet.orbitSun;
     ctx.textAlign = 'center';
-    ctx.font = '11px Segoe UI';
+    ctx.font = `${Math.round(11 * S)}px Segoe UI`;
     ctx.fillStyle = `rgba(255,255,255,0.5)`;
-    ctx.fillText(`Orbiting: ${sun.tier.name} star  •  worth ${sun.scoreValue} pts`, canvas.width / 2, canvas.height - 80);
+    ctx.fillText(`Orbiting: ${sun.tier.name} star  •  worth ${sun.scoreValue} pts`, canvas.width / 2, canvas.height - Math.round(80 * S));
   }
 
   drawPowerBar();
@@ -597,10 +603,11 @@ function drawHUD() {
 function drawPowerBar() {
   if (!powerBar.active) return;
 
-  const BAR_W = 140;
-  const BAR_H = 14;
+  const S     = uiScale();
+  const BAR_W = Math.round(160 * S);
+  const BAR_H = Math.round(16 * S);
   const BAR_X = canvas.width / 2 - BAR_W / 2;
-  const BAR_Y = canvas.height - 54;
+  const BAR_Y = canvas.height - Math.round(60 * S);
 
   ctx.fillStyle = 'rgba(0,0,0,0.55)';
   ctx.strokeStyle = 'rgba(255,255,255,0.25)';
@@ -626,14 +633,15 @@ function drawPowerBar() {
   ctx.lineTo(escMark, BAR_Y + BAR_H);
   ctx.stroke();
 
+  const barLabel = isTouchDevice ? 'POWER  —  release to launch' : 'POWER  —  release SPACE';
   ctx.fillStyle = 'rgba(255,255,255,0.75)';
-  ctx.font = '11px Segoe UI';
+  ctx.font = `${Math.round(11 * S)}px Segoe UI`;
   ctx.textAlign = 'center';
-  ctx.fillText('POWER  —  release SPACE', canvas.width / 2, BAR_Y - 6);
+  ctx.fillText(barLabel, canvas.width / 2, BAR_Y - Math.round(6 * S));
 
   // Tiny "ESC" label above marker
   ctx.fillStyle = 'rgba(255,255,255,0.4)';
-  ctx.font = '9px Segoe UI';
+  ctx.font = `${Math.round(9 * S)}px Segoe UI`;
   ctx.fillText('esc', escMark, BAR_Y - 1);
 }
 
@@ -643,13 +651,14 @@ function drawLostTimerHUD() {
   if (bound) return;
   if (lostTimer < 1) return;
 
+  const S         = uiScale();
   const remaining = LOST_TIMEOUT - lostTimer;
   const t = remaining / LOST_TIMEOUT;
   const pulse = 0.7 + 0.3 * Math.sin(Date.now() / 200);
   ctx.textAlign = 'center';
-  ctx.font = 'bold 17px Segoe UI';
+  ctx.font = `bold ${Math.round(17 * S)}px Segoe UI`;
   ctx.fillStyle = `rgba(255,${Math.round(60 * t)},${Math.round(60 * t)},${pulse})`;
-  ctx.fillText(`Lost in space… ${Math.ceil(remaining)}s`, canvas.width / 2, 80);
+  ctx.fillText(`Lost in space… ${Math.ceil(remaining)}s`, canvas.width / 2, Math.round(80 * S));
 }
 
 // ── Trajectory preview ────────────────────────────────────────────────────────
@@ -740,54 +749,72 @@ function drawTrajectoryPreview() {
 const MUTE_BTN = { x: 0, y: 0, size: 28 };
 
 function drawMuteButton() {
-  MUTE_BTN.x = canvas.width  - 18;
-  MUTE_BTN.y = canvas.height - 18;
+  const S        = uiScale();
+  const iconSize = Math.round((isTouchDevice ? 26 : 18) * S);
+  const pad      = Math.round(iconSize * 0.75);
+  MUTE_BTN.x    = canvas.width  - pad;
+  MUTE_BTN.y    = canvas.height - pad;
+  MUTE_BTN.size = iconSize + pad;
   const icon = Audio.isMuted() ? '🔇' : '🔊';
-  ctx.font = '18px serif';
+  ctx.font = `${iconSize}px serif`;
   ctx.textAlign = 'right';
   ctx.textBaseline = 'bottom';
-  ctx.globalAlpha = 0.55;
+  ctx.globalAlpha = 0.65;
   ctx.fillText(icon, MUTE_BTN.x, MUTE_BTN.y);
   ctx.globalAlpha = 1;
   ctx.textBaseline = 'alphabetic';
+}
+
+function isInMuteBtn(sx, sy) {
+  return sx > canvas.width - MUTE_BTN.size && sy > canvas.height - MUTE_BTN.size;
 }
 
 canvas.addEventListener('click', e => {
   const rect = canvas.getBoundingClientRect();
   const sx   = (e.clientX - rect.left) * (canvas.width  / rect.width);
   const sy   = (e.clientY - rect.top)  * (canvas.height / rect.height);
-  if (sx > canvas.width - 46 && sy > canvas.height - 46) {
+  if (isInMuteBtn(sx, sy)) {
     Audio.setMuted(!Audio.isMuted());
   }
 });
 
 // ── Screens ───────────────────────────────────────────────────────────────────
 function drawStartScreen() {
+  const S = uiScale();
   ctx.fillStyle = 'rgba(0,0,0,0.75)';
   ctx.fillRect(0, 0, canvas.width, canvas.height);
 
   ctx.textAlign = 'center';
-  ctx.font = 'bold 36px Segoe UI';
+  ctx.font = `bold ${Math.round(36 * S)}px Segoe UI`;
   ctx.fillStyle = '#ffffff';
-  ctx.fillText('GRAVITY HOPPER', canvas.width / 2, canvas.height / 2 - 70);
+  ctx.fillText('GRAVITY HOPPER', canvas.width / 2, canvas.height / 2 - Math.round(70 * S));
 
-  ctx.font = '14px Segoe UI';
+  ctx.font = `${Math.round(13 * S)}px Segoe UI`;
   ctx.fillStyle = 'rgba(255,255,255,0.6)';
-  const lines = [
+  const lines = isTouchDevice ? [
+    'Orbit a star. Tap to freeze.',
+    'Hold to charge power — release to launch.',
+    'Hop from star to star. Don\'t get lost.',
+    '',
+    'Smaller stars = more points.',
+  ] : [
     'Orbit a star. Press SPACE to freeze.',
     'Hold to charge power — release to launch.',
     'Hop from star to star. Don\'t get lost.',
     '',
     'Smaller stars = more points.',
   ];
-  lines.forEach((l, i) => ctx.fillText(l, canvas.width / 2, canvas.height / 2 - 20 + i * 22));
+  const lineH = Math.round(22 * S);
+  lines.forEach((l, i) => ctx.fillText(l, canvas.width / 2, canvas.height / 2 - Math.round(20 * S) + i * lineH));
 
-  ctx.font = 'bold 16px Segoe UI';
+  const ctaText = isTouchDevice ? 'TAP TO START' : 'PRESS SPACE TO START';
+  ctx.font = `bold ${Math.round(16 * S)}px Segoe UI`;
   ctx.fillStyle = `rgba(255,255,100,${0.7 + 0.3 * Math.sin(Date.now() / 500)})`;
-  ctx.fillText('PRESS SPACE TO START', canvas.width / 2, canvas.height / 2 + 100);
+  ctx.fillText(ctaText, canvas.width / 2, canvas.height / 2 + Math.round(100 * S));
 }
 
 function drawDeathScreen() {
+  const S = uiScale();
   ctx.fillStyle = 'rgba(0,0,0,0.72)';
   ctx.fillRect(0, 0, canvas.width, canvas.height);
 
@@ -798,24 +825,25 @@ function drawDeathScreen() {
   };
 
   ctx.textAlign = 'center';
-  ctx.font = 'bold 28px Segoe UI';
+  ctx.font = `bold ${Math.round(28 * S)}px Segoe UI`;
   ctx.fillStyle = '#ff5555';
-  ctx.fillText(msgs[deathReason] || 'Game Over', canvas.width / 2, canvas.height / 2 - 55);
+  ctx.fillText(msgs[deathReason] || 'Game Over', canvas.width / 2, canvas.height / 2 - Math.round(55 * S));
 
-  ctx.font = 'bold 20px Segoe UI';
+  ctx.font = `bold ${Math.round(20 * S)}px Segoe UI`;
   ctx.fillStyle = '#ffffff';
-  ctx.fillText(score.current.toLocaleString(), canvas.width / 2, canvas.height / 2 - 15);
-  ctx.font = '12px Segoe UI';
+  ctx.fillText(score.current.toLocaleString(), canvas.width / 2, canvas.height / 2 - Math.round(15 * S));
+  ctx.font = `${Math.round(12 * S)}px Segoe UI`;
   ctx.fillStyle = 'rgba(255,255,255,0.5)';
-  ctx.fillText('SCORE', canvas.width / 2, canvas.height / 2 + 4);
+  ctx.fillText('SCORE', canvas.width / 2, canvas.height / 2 + Math.round(4 * S));
 
-  ctx.font = '14px Segoe UI';
+  ctx.font = `${Math.round(13 * S)}px Segoe UI`;
   ctx.fillStyle = 'rgba(255,200,50,0.8)';
-  ctx.fillText(`Best: ${score.best.toLocaleString()}  •  Stars reached: ${score.totalSuns}`, canvas.width / 2, canvas.height / 2 + 30);
+  ctx.fillText(`Best: ${score.best.toLocaleString()}  •  Stars reached: ${score.totalSuns}`, canvas.width / 2, canvas.height / 2 + Math.round(28 * S));
 
-  ctx.font = 'bold 15px Segoe UI';
+  const ctaText = isTouchDevice ? 'TAP TO RETRY' : 'PRESS SPACE TO RETRY';
+  ctx.font = `bold ${Math.round(15 * S)}px Segoe UI`;
   ctx.fillStyle = `rgba(255,255,100,${0.7 + 0.3 * Math.sin(Date.now() / 500)})`;
-  ctx.fillText('PRESS SPACE TO RETRY', canvas.width / 2, canvas.height / 2 + 70);
+  ctx.fillText(ctaText, canvas.width / 2, canvas.height / 2 + Math.round(68 * S));
 }
 
 // ── Render ────────────────────────────────────────────────────────────────────
