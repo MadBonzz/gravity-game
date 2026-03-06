@@ -4,10 +4,14 @@
 const GEN = {
   sunSpacingMin:    260,   // min vertical gap between suns
   sunSpacingMax:    420,   // max vertical gap
-  xRange:           190,   // horizontal spread from center (world units)
+  // Spread scales with screen width but is capped at 350 world units so that
+  // inter-star distances stay manageable. resize() scales PHYSICS.G to compensate.
+  get xRange()        { return Math.max(190, Math.min(350, Math.floor(canvas.width * 0.28))); },
   minSunDistance:   180,   // minimum distance between any two suns
   blackHoleEvery:   5,     // spawn one black hole every N suns (approx)
-  blackHoleXMin:    160,   // black holes are always offset sideways
+  // black hole offsets track xRange so they remain within the visible play area
+  get blackHoleXMin() { return Math.max(110, Math.floor(GEN.xRange * 0.65)); },
+  get blackHoleXMax() { return Math.max(200, Math.floor(GEN.xRange * 1.20)); },
   pruneDistance:    900,   // remove bodies this far below camera
   lookaheadBuffer:  700,   // generate when top sun is within this of camera top
 };
@@ -67,7 +71,7 @@ function generateUpTo(targetY, sunsArr, blackHolesArr) {
     // Maybe spawn a black hole offset to the side
     if (sunsSinceBlackHole >= GEN.blackHoleEvery && Math.random() < 0.6) {
       const side = Math.random() < 0.5 ? 1 : -1;
-      const bhX  = x + side * randRange(GEN.blackHoleXMin, 240);
+      const bhX  = x + side * randRange(GEN.blackHoleXMin, GEN.blackHoleXMax);
       const bhY  = worldTopY + randRange(-80, 80);
       blackHolesArr.push(new BlackHole(bhX, bhY));
       sunsSinceBlackHole = 0;
@@ -110,15 +114,29 @@ function onOrbitCapture(sun) {
   const isNewSun = (sun !== score.lastSun);
 
   if (isNewSun) {
+    // Count suns skipped between last capture and this one (by Y position)
+    let skipped = 0;
+    if (score.lastSun) {
+      const minY = Math.min(score.lastSun.pos.y, sun.pos.y);
+      const maxY = Math.max(score.lastSun.pos.y, sun.pos.y);
+      skipped = suns.filter(s => s !== score.lastSun && s !== sun &&
+                                  s.pos.y > minY && s.pos.y < maxY).length;
+    }
+
     // Combo increments for each unique new sun
     score.combo = Math.min(score.combo + 1, 8);
-    const points = Math.round(sun.scoreValue * score.combo);
-    score.current += points;
+    const basePoints = Math.round(sun.scoreValue * score.combo);
+    // Skip bonus: 300 pts per skipped star, multiplied by current combo
+    const skipBonus  = skipped > 0 ? skipped * 300 * score.combo : 0;
+    score.current += basePoints + skipBonus;
     score.totalSuns++;
     score.lastSun = sun;
 
-    // Floating score popup (stored for render)
-    addPopup(`+${points}`, sun.pos.x, sun.pos.y + sun.radius + 20, sun.tier.color);
+    // Floating score popups
+    addPopup(`+${basePoints}`, sun.pos.x, sun.pos.y + sun.radius + 20, sun.tier.color);
+    if (skipBonus > 0) {
+      addPopup(`SKIP ×${skipped}  +${skipBonus}`, sun.pos.x, sun.pos.y + sun.radius + 42, '#ffaa00');
+    }
   } else {
     // Returned to same sun — reset combo
     if (score.combo > 1) {

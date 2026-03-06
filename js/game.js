@@ -5,16 +5,18 @@ const ctx    = canvas.getContext('2d');
 
 const isTouchDevice = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
 
-// Scale UI elements relative to a 450px-wide design baseline
-function uiScale() { return Math.max(0.65, Math.min(1.4, canvas.width / 450)); }
+// Scale UI elements relative to a 450px baseline using the shorter screen dimension
+function uiScale() { return Math.max(0.65, Math.min(1.4, Math.min(canvas.width, canvas.height) / 450)); }
 
 function resize() {
-  const aspect = 9 / 16;
-  let w = window.innerWidth;
-  let h = window.innerHeight;
-  if (w / h > aspect) { w = h * aspect; } else { h = w / aspect; }
-  canvas.width  = Math.floor(w);
-  canvas.height = Math.floor(h);
+  canvas.width  = Math.floor(window.innerWidth);
+  canvas.height = Math.floor(window.innerHeight);
+  // Scale gravity to compensate for larger inter-star distances on wider screens.
+  // xRangeScale tells us how much further apart stars are vs the 450px baseline.
+  // Exponent 1.5 is a partial correction (full compensation would be ^2.0) —
+  // gravity grows noticeably stronger on big screens without feeling overpowered.
+  const xRangeScale = GEN.xRange / 190;
+  PHYSICS.G = Math.round(500 * Math.pow(xRangeScale, 1.5));
 }
 window.addEventListener('resize', resize);
 resize();
@@ -75,6 +77,15 @@ let spaceWasDown = false;
 
 window.addEventListener('keydown', e => {
   if (e.code === 'Space') { e.preventDefault(); keys.space = true; }
+  if (e.code === 'KeyD') {
+    difficultyMode = difficultyMode === 'easy' ? 'hard' : 'easy';
+    if (planet && planet.orbitSun) {
+      addPopup(`${difficultyMode.toUpperCase()} MODE`, planet.orbitSun.pos.x, planet.orbitSun.pos.y + 40, '#ffffff');
+    }
+  }
+  if (e.code === 'KeyM') {
+    Audio.setMuted(!Audio.isMuted());
+  }
 });
 window.addEventListener('keyup', e => {
   if (e.code === 'Space') { keys.space = false; }
@@ -237,6 +248,7 @@ const LOST_TIMEOUT = 8;
 let lostTimer   = 0;
 let gameState   = 'start';  // 'start' | 'playing' | 'dead'
 let deathReason = '';
+let difficultyMode = 'easy'; // 'easy' | 'hard'
 
 function triggerDeath(reason) {
   gameState   = 'dead';
@@ -455,10 +467,10 @@ function drawSun(sun) {
   ctx.fill();
 
   // Body
-  const grad = ctx.createRadialGradient(sp.x - r * 0.3, sp.y - r * 0.3, r * 0.1, sp.x, sp.y, r);
-  grad.addColorStop(0, '#ffffff');
-  grad.addColorStop(0.3, sun.tier.color);
-  grad.addColorStop(1, sun.tier.glowColor.replace('0.', '0.6'));
+  const grad = ctx.createRadialGradient(sp.x - r * 0.1, sp.y - r * 0.1, 0, sp.x, sp.y, r);
+  grad.addColorStop(0, sun.tier.coreColor || '#ffffff');
+  grad.addColorStop(0.5, sun.tier.color);
+  grad.addColorStop(1, sun.tier.color);
   ctx.beginPath();
   ctx.arc(sp.x, sp.y, r, 0, Math.PI * 2);
   ctx.fillStyle = grad;
@@ -578,7 +590,7 @@ function drawHUD() {
     ctx.fillText(`×${score.combo} COMBO`, pad, Math.round(68 * S));
   }
 
-  // Difficulty indicator — top center, subtle
+  // Difficulty indicator — top center, subtle. Includes Mode now.
   const diffLevel = Math.floor(score.totalSuns / 5) + 1;
   const diffLabel = diffLevel <= 2 ? 'EASY' : diffLevel <= 4 ? 'NORMAL' : diffLevel <= 7 ? 'HARD' : 'EXTREME';
   const diffColor = diffLevel <= 2 ? 'rgba(100,255,120,0.4)' : diffLevel <= 4 ? 'rgba(255,220,60,0.4)' : diffLevel <= 7 ? 'rgba(255,140,40,0.4)' : 'rgba(255,60,60,0.5)';
@@ -586,6 +598,9 @@ function drawHUD() {
   ctx.font = `${Math.round(10 * S)}px Segoe UI`;
   ctx.fillStyle = diffColor;
   ctx.fillText(`LEVEL ${diffLevel}  ${diffLabel}`, canvas.width / 2, Math.round(18 * S));
+  
+  ctx.fillStyle = difficultyMode === 'easy' ? 'rgba(80,255,120,0.6)' : 'rgba(255,80,80,0.6)';
+  ctx.fillText(`${difficultyMode.toUpperCase()} MODE (Press D)`, canvas.width / 2, Math.round(32 * S));
 
   // Current orbit info — bottom center
   if (planet.orbitSun) {
@@ -601,6 +616,7 @@ function drawHUD() {
 }
 
 function drawPowerBar() {
+  if (difficultyMode === 'hard') return;
   if (!powerBar.active) return;
 
   const S     = uiScale();
@@ -668,7 +684,11 @@ const TRAJ_STEPS = 80;
 const TRAJ_DT    = 0.055;
 
 function drawTrajectoryPreview() {
+  if (difficultyMode === 'hard') return;
   if (!planet.orbitSun) return;
+
+  // In easy mode, if not actively charging, show a basic unpowered path (power = 0)
+  const powerUsed = powerBar.active ? powerBar.value : 0;
 
   const sun    = planet.orbitSun;
   const r      = planet.orbitRadius;
@@ -676,7 +696,7 @@ function drawTrajectoryPreview() {
   const vOrb   = orbitalSpeed(sun, r);
   const tangent = Vec2.norm(planet.vel);
   const radial  = Vec2.norm(Vec2.sub(planet.pos, sun.pos));
-  const extra   = powerBar.value * vEsc * 1.8;
+  const extra   = powerUsed * vEsc * 1.8;
 
   // Simulated initial velocity
   let px = planet.pos.x, py = planet.pos.y;
@@ -773,44 +793,260 @@ canvas.addEventListener('click', e => {
   const rect = canvas.getBoundingClientRect();
   const sx   = (e.clientX - rect.left) * (canvas.width  / rect.width);
   const sy   = (e.clientY - rect.top)  * (canvas.height / rect.height);
+
+  // About overlay intercepts all clicks while open
+  if (aboutOpen) {
+    if (sx >= ABOUT_LINK.x && sx <= ABOUT_LINK.x + ABOUT_LINK.w &&
+        sy >= ABOUT_LINK.y && sy <= ABOUT_LINK.y + ABOUT_LINK.h) {
+      window.open('https://github.com/MadBonzz/gravity-game', '_blank', 'noopener');
+    }
+    aboutOpen = false;
+    return;
+  }
+
   if (isInMuteBtn(sx, sy)) {
     Audio.setMuted(!Audio.isMuted());
+    return;
+  }
+
+  if (isInAboutBtn(sx, sy)) {
+    aboutOpen = true;
+    return;
+  }
+
+  if (gameState === 'start') {
+    if (sx >= DIFF_BTN.x && sx <= DIFF_BTN.x + DIFF_BTN.w &&
+        sy >= DIFF_BTN.y && sy <= DIFF_BTN.y + DIFF_BTN.h) {
+      difficultyMode = difficultyMode === 'easy' ? 'hard' : 'easy';
+      // prevent this click from also starting the game if they clicked the spacebar too
+      spaceWasDown = true;
+    }
   }
 });
 
+// ── About button / overlay ─────────────────────────────────────────────────────
+const ABOUT_BTN  = { x: 0, y: 0, size: 0 };
+const ABOUT_LINK = { x: 0, y: 0, w: 0, h: 0 }; // hit-rect for the GitHub URL
+let   aboutOpen  = false;
+
+function drawAboutButton() {
+  const S   = uiScale();
+  const r   = Math.round((isTouchDevice ? 13 : 9) * S);
+  const pad = Math.round(r * 1.9);
+  const bx  = pad;
+  const by  = canvas.height - pad;
+  ABOUT_BTN.size = (r + pad);  // square hit region from corner
+
+  ctx.save();
+  ctx.globalAlpha = aboutOpen ? 1.0 : 0.50;
+
+  // circle background
+  ctx.beginPath();
+  ctx.arc(bx, by, r, 0, Math.PI * 2);
+  ctx.fillStyle = aboutOpen ? 'rgba(100,160,255,0.28)' : 'rgba(255,255,255,0.08)';
+  ctx.fill();
+  ctx.strokeStyle = aboutOpen ? '#88ccff' : 'rgba(255,255,255,0.45)';
+  ctx.lineWidth = 1.2;
+  ctx.stroke();
+
+  // "i" letter
+  ctx.font         = `bold ${Math.round(r * 1.25)}px Segoe UI`;
+  ctx.textAlign    = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillStyle    = aboutOpen ? '#88ccff' : '#ffffff';
+  ctx.fillText('i', bx, by);
+
+  ctx.restore();
+}
+
+function isInAboutBtn(sx, sy) {
+  return sx < ABOUT_BTN.size && sy > canvas.height - ABOUT_BTN.size;
+}
+
+function drawAboutOverlay() {
+  if (!aboutOpen) return;
+
+  const S   = uiScale();
+  const W   = Math.min(canvas.width * 0.82, Math.round(310 * S));
+  const H   = Math.round(168 * S);
+  const ox  = canvas.width  / 2 - W / 2;
+  const oy  = canvas.height / 2 - H / 2;
+  const pad = Math.round(18 * S);
+  const cx  = canvas.width / 2;
+
+  // dim backdrop
+  ctx.fillStyle = 'rgba(0,0,0,0.60)';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  // card background
+  ctx.fillStyle   = 'rgba(6,12,26,0.97)';
+  ctx.strokeStyle = 'rgba(100,160,255,0.35)';
+  ctx.lineWidth   = 1.5;
+  ctx.beginPath();
+  ctx.roundRect(ox, oy, W, H, Math.round(10 * S));
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.textAlign = 'center';
+
+  // game title
+  ctx.font      = `bold ${Math.round(17 * S)}px Segoe UI`;
+  ctx.fillStyle = '#ffffff';
+  ctx.fillText('GRAVITY HOPPER', cx, oy + pad + Math.round(15 * S));
+
+  // made by line
+  ctx.font      = `${Math.round(11 * S)}px Segoe UI`;
+  ctx.fillStyle = 'rgba(160,190,255,0.70)';
+  ctx.fillText('made by  MadBonzz', cx, oy + pad + Math.round(34 * S));
+
+  // thin divider
+  ctx.strokeStyle = 'rgba(100,160,255,0.18)';
+  ctx.lineWidth   = 1;
+  ctx.beginPath();
+  ctx.moveTo(ox + pad, oy + pad + Math.round(48 * S));
+  ctx.lineTo(ox + W - pad, oy + pad + Math.round(48 * S));
+  ctx.stroke();
+
+  // GitHub link
+  const linkText = 'github.com/MadBonzz/gravity-game';
+  const linkY    = oy + pad + Math.round(78 * S);
+  ctx.font       = `${Math.round(11 * S)}px Segoe UI`;
+  ctx.fillStyle  = '#4d9fff';
+  ctx.fillText(linkText, cx, linkY);
+
+  // underline
+  const tw = ctx.measureText(linkText).width;
+  ctx.strokeStyle = 'rgba(77,159,255,0.6)';
+  ctx.lineWidth   = 0.8;
+  ctx.beginPath();
+  ctx.moveTo(cx - tw / 2, linkY + 2);
+  ctx.lineTo(cx + tw / 2, linkY + 2);
+  ctx.stroke();
+
+  // store hit-rect for click detection (set every frame so scale changes are handled)
+  ABOUT_LINK.x = cx - tw / 2;
+  ABOUT_LINK.y = linkY - Math.round(14 * S);
+  ABOUT_LINK.w = tw;
+  ABOUT_LINK.h = Math.round(20 * S);
+
+  // close hint
+  ctx.font      = `${Math.round(10 * S)}px Segoe UI`;
+  ctx.fillStyle = 'rgba(255,255,255,0.28)';
+  ctx.fillText(
+    isTouchDevice ? 'tap anywhere to close' : 'click anywhere to close',
+    cx, oy + H - Math.round(12 * S)
+  );
+}
+
 // ── Screens ───────────────────────────────────────────────────────────────────
+const DIFF_BTN = { x: 0, y: 0, w: 120, h: 40 };
+
 function drawStartScreen() {
-  const S = uiScale();
-  ctx.fillStyle = 'rgba(0,0,0,0.75)';
+  const S  = uiScale();
+  const cx = canvas.width  / 2;
+  const cy = canvas.height / 2;
+
+  ctx.fillStyle = 'rgba(0,0,0,0.78)';
   ctx.fillRect(0, 0, canvas.width, canvas.height);
 
   ctx.textAlign = 'center';
-  ctx.font = `bold ${Math.round(36 * S)}px Segoe UI`;
+
+  // ── Title ──
+  ctx.font      = `bold ${Math.round(38 * S)}px Segoe UI`;
   ctx.fillStyle = '#ffffff';
-  ctx.fillText('GRAVITY HOPPER', canvas.width / 2, canvas.height / 2 - Math.round(70 * S));
+  ctx.fillText('GRAVITY HOPPER', cx, cy - Math.round(148 * S));
 
-  ctx.font = `${Math.round(13 * S)}px Segoe UI`;
-  ctx.fillStyle = 'rgba(255,255,255,0.6)';
-  const lines = isTouchDevice ? [
-    'Orbit a star. Tap to freeze.',
-    'Hold to charge power — release to launch.',
-    'Hop from star to star. Don\'t get lost.',
-    '',
-    'Smaller stars = more points.',
-  ] : [
-    'Orbit a star. Press SPACE to freeze.',
-    'Hold to charge power — release to launch.',
-    'Hop from star to star. Don\'t get lost.',
-    '',
-    'Smaller stars = more points.',
-  ];
-  const lineH = Math.round(22 * S);
-  lines.forEach((l, i) => ctx.fillText(l, canvas.width / 2, canvas.height / 2 - Math.round(20 * S) + i * lineH));
+  // ── Tagline ──
+  ctx.font      = `italic ${Math.round(12 * S)}px Segoe UI`;
+  ctx.fillStyle = 'rgba(160,200,255,0.60)';
+  ctx.fillText('Every orbit is a controlled fall \u2014 until you let go.', cx, cy - Math.round(116 * S));
 
-  const ctaText = isTouchDevice ? 'TAP TO START' : 'PRESS SPACE TO START';
-  ctx.font = `bold ${Math.round(16 * S)}px Segoe UI`;
-  ctx.fillStyle = `rgba(255,255,100,${0.7 + 0.3 * Math.sin(Date.now() / 500)})`;
-  ctx.fillText(ctaText, canvas.width / 2, canvas.height / 2 + Math.round(100 * S));
+  // ── Description ──
+  ctx.font      = `${Math.round(12 * S)}px Segoe UI`;
+  ctx.fillStyle = 'rgba(255,255,255,0.42)';
+  ctx.fillText('Hop between stars using gravitational momentum.', cx, cy - Math.round(84 * S));
+  ctx.fillText("Avoid black holes. Don't drift too far. Rise forever.", cx, cy - Math.round(68 * S));
+
+  // ── Thin separator ──
+  const sepW = Math.min(canvas.width * 0.50, Math.round(250 * S));
+  ctx.strokeStyle = 'rgba(255,255,255,0.10)';
+  ctx.lineWidth   = 1;
+  ctx.beginPath();
+  ctx.moveTo(cx - sepW / 2, cy - Math.round(50 * S));
+  ctx.lineTo(cx + sepW / 2, cy - Math.round(50 * S));
+  ctx.stroke();
+
+  // ── Controls ──
+  if (isTouchDevice) {
+    ctx.font      = `${Math.round(12 * S)}px Segoe UI`;
+    ctx.fillStyle = 'rgba(255,255,255,0.48)';
+    ctx.fillText('TAP & HOLD to charge power \u2014 release to launch', cx, cy - Math.round(28 * S));
+    ctx.fillText('TAP the mode button below to toggle Easy / Hard', cx, cy - Math.round(12 * S));
+  } else {
+    const ctrlRows = [
+      ['SPACE', 'hold to charge power \u2014 release to launch'],
+      ['D',     'toggle Easy / Hard difficulty'],
+      ['M',     'toggle sound on / off'],
+    ];
+    const lineH    = Math.round(20 * S);
+    const keyColX  = cx - Math.round(92 * S);
+    const descColX = cx - Math.round(56 * S);
+
+    for (let i = 0; i < ctrlRows.length; i++) {
+      const [k, desc] = ctrlRows[i];
+      const y = cy - Math.round(30 * S) + i * lineH;
+
+      // key cap
+      ctx.font = `bold ${Math.round(10 * S)}px Segoe UI`;
+      const kw = Math.max(Math.round(44 * S), ctx.measureText(k).width + Math.round(18 * S));
+      const kh = Math.round(17 * S);
+      ctx.fillStyle   = 'rgba(255,255,255,0.09)';
+      ctx.strokeStyle = 'rgba(255,255,255,0.22)';
+      ctx.lineWidth   = 0.8;
+      ctx.beginPath();
+      ctx.roundRect(keyColX - kw / 2, y - Math.round(13 * S), kw, kh, 3);
+      ctx.fill();
+      ctx.stroke();
+      ctx.textAlign = 'center';
+      ctx.fillStyle = 'rgba(255,255,255,0.78)';
+      ctx.fillText(k, keyColX, y);
+
+      // description
+      ctx.textAlign = 'left';
+      ctx.font      = `${Math.round(11 * S)}px Segoe UI`;
+      ctx.fillStyle = 'rgba(200,215,255,0.44)';
+      ctx.fillText(desc, descColX, y);
+    }
+  }
+
+  // ── MODE toggle button — dimensions set before x so centering is correct ──
+  ctx.textAlign  = 'center';
+  DIFF_BTN.w     = Math.round(148 * S);
+  DIFF_BTN.h     = Math.round(37 * S);
+  DIFF_BTN.x     = cx - DIFF_BTN.w / 2;       // centred using the just-set width
+  DIFF_BTN.y     = cy + Math.round(34 * S);
+
+  ctx.fillStyle   = difficultyMode === 'easy' ? 'rgba(80,255,120,0.15)' : 'rgba(255,80,80,0.15)';
+  ctx.strokeStyle = difficultyMode === 'easy' ? 'rgba(80,255,120,0.75)' : 'rgba(255,80,80,0.75)';
+  ctx.lineWidth   = 1.5;
+  ctx.beginPath();
+  ctx.roundRect(DIFF_BTN.x, DIFF_BTN.y, DIFF_BTN.w, DIFF_BTN.h, 6);
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.font      = `bold ${Math.round(13 * S)}px Segoe UI`;
+  ctx.fillStyle = '#ffffff';
+  ctx.fillText(`MODE: ${difficultyMode.toUpperCase()}`, cx, DIFF_BTN.y + DIFF_BTN.h / 2 + Math.round(5 * S));
+
+  ctx.font      = `${Math.round(9 * S)}px Segoe UI`;
+  ctx.fillStyle = 'rgba(255,255,255,0.22)';
+  ctx.fillText('click to toggle', cx, DIFF_BTN.y + DIFF_BTN.h + Math.round(10 * S));
+
+  // ── Start prompt (pulsing) ──
+  const pulse = 0.65 + 0.35 * Math.sin(Date.now() / 600);
+  ctx.font      = `bold ${Math.round(14 * S)}px Segoe UI`;
+  ctx.fillStyle = `rgba(255,255,120,${pulse.toFixed(2)})`;
+  ctx.fillText(isTouchDevice ? 'TAP TO BEGIN' : 'PRESS SPACE TO BEGIN', cx, cy + Math.round(94 * S));
 }
 
 function drawDeathScreen() {
@@ -869,7 +1105,7 @@ function render() {
 
   // Layer 4: planet + trajectory preview + particles + popups
   if (gameState !== 'start') {
-    if (planet.frozen) drawTrajectoryPreview();
+    if (planet.orbitSun) drawTrajectoryPreview();
     drawPlanet();
     drawForegroundEffects();
     drawPopups(worldToScreen);
@@ -878,10 +1114,13 @@ function render() {
 
   ctx.restore();
 
-  drawMuteButton();
-
+  // Screen overlays drawn first so persistent UI renders on top of them
   if (gameState === 'start') drawStartScreen();
   if (gameState === 'dead')  drawDeathScreen();
+
+  drawMuteButton();
+  drawAboutButton();
+  drawAboutOverlay();
 }
 
 // ── Start ─────────────────────────────────────────────────────────────────────
